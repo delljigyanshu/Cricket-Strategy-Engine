@@ -1,0 +1,30 @@
+{
+  "bowler_map": {
+    "bowler_0": "R Ashwin",
+    "bowler_1": "SP Narine",
+    "bowler_2": "B Kumar",
+    "bowler_3": "RA Jadeja",
+    "bowler_4": "PP Chawla",
+    "bowler_5": "YS Chahal",
+    "bowler_6": "Harbhajan Singh",
+    "bowler_7": "A Mishra",
+    "bowler_8": "DJ Bravo",
+    "bowler_9": "UT Yadav",
+    "bowler_10": "JJ Bumrah",
+    "bowler_11": "AR Patel"
+  },
+  "batsman_list": [
+    "V Kohli",
+    "S Dhawan",
+    "RG Sharma",
+    "DA Warner",
+    "SK Raina",
+    "MS Dhoni",
+    "RV Uthappa",
+    "AM Rahane",
+    "KD Karthik",
+    "KL Rahul",
+    "G Gambhir",
+    "CH Gayle"
+  ]
+}

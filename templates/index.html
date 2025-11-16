@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cricket RL Simulator — Pretty UI</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="theme-dark">
+  <div class="app-wrap">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">🏏</div>
+        <div class="brand-text">
+          <h1>Cricket Strategy Engine</h1>
+          <div class="muted">Reinforcement-learning • Ball-by-ball simulator</div>
+        </div>
+      </div>
+
+      <div class="top-controls">
+        <label class="input-label">
+          <input id="batting_team" placeholder="Batting team (optional)" />
+        </label>
+
+        <div class="actions">
+          <button id="themeToggle" class="btn icon" title="Toggle theme">🌗</button>
+          <button id="runBtn" class="btn primary">Run Match</button>
+          <button id="clearBtn" class="btn ghost">Clear</button>
+          <button id="downloadBtn" class="btn outline">Download</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <section class="left">
+        <div class="card big">
+          <div class="card-head">
+            <div>
+              <div class="muted tiny">Final Score</div>
+              <div id="finalScore" class="final-score">—</div>
+            </div>
+
+            <div class="card-head-right">
+              <div id="duration" class="muted tiny">—</div>
+              <div id="spinner" class="spinner hidden" aria-hidden="true"></div>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <h3 class="section-title">Match Log</h3>
+            <div id="logPanel" class="log-panel"></div>
+          </div>
+        </div>
+
+        <div class="card small">
+          <h3 class="section-title">Controls & Notes</h3>
+          <ul class="notes">
+            <li>Click a bowler name in the log to view player stats (from this match).</li>
+            <li>Run multiple simulations to compare outcomes.</li>
+          </ul>
+        </div>
+      </section>
+
+      <aside class="right">
+        <div class="card">
+          <h3 class="section-title">Score Progress</h3>
+          <canvas id="scoreChart"></canvas>
+        </div>
+
+        <div class="card">
+          <h3 class="section-title">Bowler Usage</h3>
+          <canvas id="bowlerChart"></canvas>
+        </div>
+
+        <div class="card player-card" id="playerCard">
+          <div class="player-header">
+            <div class="avatar" id="playerAvatar">🏏</div>
+            <div>
+              <div id="playerName" class="player-name">Select a bowler</div>
+              <div id="playerRole" class="muted tiny">Bowler • stats for current match</div>
+            </div>
+          </div>
+
+          <div class="player-stats" id="playerStats">
+            <div class="stat"><div class="label">Balls</div><div id="statBalls">—</div></div>
+            <div class="stat"><div class="label">Runs conceded</div><div id="statRuns">—</div></div>
+            <div class="stat"><div class="label">Wickets</div><div id="statWkts">—</div></div>
+            <div class="stat"><div class="label">Avg / ball</div><div id="statAvg">—</div></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="footer">
+      <div class="muted tiny">Made with ❤️ — Cricket Strategy Engine</div>
+      <div class="muted tiny">Local demo — not for production</div>
+    </footer>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-hidden="true">
+    <div class="modal-card">
+      <button id="modalClose" class="modal-close">✕</button>
+      <div class="modal-body">
+        <h2 id="modalName">Player</h2>
+        <div id="modalContent" class="modal-content"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+
+const runBtn = document.getElementById('runBtn');
+const clearBtn = document.getElementById('clearBtn');
+const downloadBtn = document.getElementById('downloadBtn');
+const logPanel = document.getElementById('logPanel');
+const finalScoreEl = document.getElementById('finalScore');
+const battingTeamInput = document.getElementById('batting_team');
+const spinner = document.getElementById('spinner');
+const durationEl = document.getElementById('duration');
+const playerCard = document.getElementById('playerCard');
+const playerNameEl = document.getElementById('playerName');
+const playerAvatar = document.getElementById('playerAvatar');
+const statBalls = document.getElementById('statBalls');
+const statRuns = document.getElementById('statRuns');
+const statWkts = document.getElementById('statWkts');
+const statAvg = document.getElementById('statAvg');
+const themeToggle = document.getElementById('themeToggle');
+
+let scoreChart = null, bowlerChart = null;
+let lastResponse = null;
+
+function showSpinner(on) { spinner.classList.toggle('hidden', !on); }
+function setDuration(s) { durationEl.textContent = s; }
+
+function makeLogRow(obj) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'log-row';
+  if (obj.note) {
+    wrapper.innerHTML = `<div class="muted">${obj.note}</div>`;
+    return wrapper;
+  }
+
+  wrapper.innerHTML = `
+    <div class="log-left">
+      <div class="ball">Ball ${obj.ball}</div>
+      <div class="info">
+        <div class="players"><a href="#" class="bowler-link" data-bowler="${escapeHtml(obj.bowler_name)}">${escapeHtml(obj.bowler_name)}</a>
+          <span class="muted">→ ${escapeHtml(obj.batsman)}</span></div>
+        <div class="muted tiny">${escapeHtml(obj.intent)}</div>
+      </div>
+    </div>
+    <div class="log-right">
+      <div class="runs">${obj.runs}</div>
+      ${obj.wicket ? '<div class="wk">W</div>' : ''}
+      <div class="muted tiny">${obj.score}</div>
+    </div>`;
+  return wrapper;
+}
+
+function escapeHtml(s){ return (s||'').toString().replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+
+function clearAll() {
+  logPanel.innerHTML = '';
+  finalScoreEl.textContent = '—';
+  durationEl.textContent = '—';
+  lastResponse = null;
+  updateCharts({balls:[], scores:[]}, {});
+  resetPlayerCard();
+}
+
+function resetPlayerCard(){
+  playerNameEl.textContent = 'Select a bowler';
+  playerAvatar.textContent = '🏏';
+  statBalls.textContent = '—';
+  statRuns.textContent = '—';
+  statWkts.textContent = '—';
+  statAvg.textContent = '—';
+}
+
+function initCharts(){
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  scoreChart = new Chart(ctx, {
+    type:'line',
+    data:{labels:[], datasets:[{label:'Score', data:[], borderWidth:2, tension:0.25}]},
+    options:{plugins:{legend:{display:false}}, scales:{x:{title:{display:true,text:'Ball'}}, y:{title:{display:true,text:'Score'}}}}
+  });
+  const ctx2 = document.getElementById('bowlerChart').getContext('2d');
+  bowlerChart = new Chart(ctx2, {
+    type:'bar',
+    data:{labels:[], datasets:[{label:'Balls', data:[]}]},
+    options:{indexAxis:'y', plugins:{legend:{display:false}}, scales:{x:{beginAtZero:true}}}
+  });
+}
+
+function updateCharts(chartData, bowlerUsage){
+  if(!scoreChart || !bowlerChart) return;
+  scoreChart.data.labels = chartData.balls;
+  scoreChart.data.datasets[0].data = chartData.scores;
+  scoreChart.update();
+
+  bowlerChart.data.labels = Object.keys(bowlerUsage);
+  bowlerChart.data.datasets[0].data = Object.values(bowlerUsage);
+  bowlerChart.update();
+}
+
+function computeBowlerStats(bowler){
+  if(!lastResponse) return null;
+  const lines = lastResponse.lines || [];
+  const usage = lastResponse.bowler_usage || {};
+  const balls = lines.filter(l => l.bowler_name === bowler);
+  const ballsCount = balls.length;
+  const runs = balls.reduce((s, b) => s + (Number(b.runs)||0), 0);
+  const wkts = balls.reduce((s, b) => s + (b.wicket ? 1 : 0), 0);
+  return {bowler, balls:ballsCount, runs, wkts, avg: ballsCount? (runs/ballsCount).toFixed(2) : '—', usage: usage[bowler]||ballsCount};
+}
+
+runBtn.addEventListener('click', async ()=>{
+  if(runBtn.disabled) return;
+  runBtn.disabled = true; runBtn.textContent = 'Running...'; showSpinner(true); logPanel.innerHTML=''; finalScoreEl.textContent='Running...';
+  const t0 = performance.now();
+  const battingTeam = (battingTeamInput.value||'').trim() || 'TeamA';
+  try{
+    const resp = await fetch('/simulate_ajax',{method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({batting_team: battingTeam})});
+    if(resp.status === 409){ const js = await resp.json(); logPanel.appendChild(document.createElement('div')).textContent = js.message; finalScoreEl.textContent='Busy'; return; }
+    if(!resp.ok) throw new Error('Server error '+resp.status);
+    const data = await resp.json();
+    if(data.error){ logPanel.appendChild(document.createElement('div')).textContent = data.message||data.error; finalScoreEl.textContent='Error'; return; }
+
+    lastResponse = data;
+
+    for(const l of data.lines){ const row = makeLogRow(l); logPanel.appendChild(row); }
+    finalScoreEl.textContent = data.final_score || '—';
+    updateCharts(data.chart || {balls:[], scores:[]}, data.bowler_usage || {});
+    const t1 = performance.now();
+    durationEl.textContent = ((t1 - t0)/1000).toFixed(2) + 's';
+  }catch(err){ logPanel.appendChild(document.createElement('div')).textContent = 'Error: '+err.message; finalScoreEl.textContent='Error'; }
+  finally{ runBtn.disabled=false; runBtn.textContent='Run Match'; showSpinner(false); }
+});
+
+logPanel.addEventListener('click', (ev)=>{
+  const a = ev.target.closest('.bowler-link');
+  if(!a) return;
+  ev.preventDefault();
+  const bowler = a.dataset.bowler;
+  const stats = computeBowlerStats(bowler);
+  if(!stats) return;
+  playerNameEl.textContent = stats.bowler;
+  playerAvatar.textContent = stats.bowler.slice(0,2).toUpperCase();
+  statBalls.textContent = stats.balls;
+  statRuns.textContent = stats.runs;
+  statWkts.textContent = stats.wkts;
+  statAvg.textContent = stats.avg;
+ 
+  openModal(bowler, stats);
+});
+
+clearBtn.addEventListener('click', clearAll);
+downloadBtn.addEventListener('click', ()=>{
+  if(!lastResponse){ alert('Run a match first'); return; }
+  const text = (lastResponse.lines||[]).map(l=> `Ball ${l.ball}: ${l.bowler_name} → ${l.batsman} • ${l.intent} • ${l.runs}${l.wicket? ' • WICKET':''} • ${l.score}`).join('\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type:'text/plain'})); a.download='match_log.txt'; document.body.appendChild(a); a.click(); a.remove();
+});
+
+const modal = document.getElementById('modal');
+const modalClose = document.getElementById('modalClose');
+const modalName = document.getElementById('modalName');
+const modalContent = document.getElementById('modalContent');
+function openModal(bowler, stats){
+  modalName.textContent = bowler + ' — Match details';
+  const lines = lastResponse.lines.filter(l=> l.bowler_name === bowler);
+  const wkts = lines.filter(l=> l.wicket).length;
+  const runs = lines.reduce((s,l)=> s + Number(l.runs || 0), 0);
+  modalContent.innerHTML = `<p><strong>Balls:</strong> ${stats.balls} • <strong>Runs:</strong> ${runs} • <strong>Wickets:</strong> ${wkts}</p>
+    <p class="muted tiny">Ball-by-ball:</p>
+    <ul>${lines.map(x=> `<li>Ball ${x.ball}: ${x.batsman} • ${x.runs}${x.wicket? ' • WICKET':''}</li>`).join('')}</ul>`;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden','false');
+}
+modalClose.addEventListener('click', ()=> { modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); });
+modal.addEventListener('click', (e)=> { if(e.target === modal) { modal.classList.add('hidden'); modal.setAttribute('aria-hidden','true'); } });
+
+themeToggle.addEventListener('click', ()=>{
+  document.body.classList.toggle('theme-dark');
+  document.body.classList.toggle('theme-light');
+});
+
+initCharts();
+resetPlayerCard();
+</script>
+</body>
+</html>
