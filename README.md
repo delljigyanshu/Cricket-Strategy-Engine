@@ -2,7 +2,7 @@
 
 A reinforcement learning–based cricket engine that simulates match scenarios and helps generate the best bowling strategies across overs. The system analyzes rewards, actions, and outcomes to improve decision-making using machine learning techniques.  
 
-![Screenshot](screenshots.png)
+![Screenshot](screenshot.png)
 
 ---
 
